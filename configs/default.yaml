@@ -1,7 +1,9 @@
 # RAG Engine Configuration
 
 corpus:
-  name: "tbd"  # Choose: supreme_court, arxiv, parliament, wikipedia
+  name: "indian_supreme_court"
+  source: "s3://indian-supreme-court-judgments"  # AWS Open Data, CC-BY-4.0
+  years: [2020, 2021, 2022, 2023, 2024]
   raw_dir: "data/raw"
   processed_dir: "data/processed"
 
