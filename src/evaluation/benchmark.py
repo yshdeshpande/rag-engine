@@ -1,0 +1,1 @@
+"""Run the full evaluation suite across configurations."""

@@ -1,0 +1,1 @@
+"""FastAPI endpoint to query the RAG system."""

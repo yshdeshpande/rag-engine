@@ -1,0 +1,1 @@
+"""Run the full ingestion pipeline: load → clean → store."""

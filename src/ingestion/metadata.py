@@ -1,0 +1,1 @@
+"""Metadata extraction from documents (titles, dates, authors, etc.)."""

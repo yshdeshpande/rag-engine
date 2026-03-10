@@ -1,0 +1,1 @@
+"""Semantic chunking — uses embedding similarity to find natural breakpoints."""
