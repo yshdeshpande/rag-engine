@@ -38,10 +38,11 @@ reranker:
   top_k: 5
 
 generation:
-  provider: "anthropic"  # anthropic | openai | local
-  model: "claude-sonnet-4-20250514"
+  provider: "ollama"  # ollama | anthropic | openai
+  model: "llama3.1"   # ollama: llama3.1, mistral | anthropic: claude-sonnet-4-20250514 | openai: gpt-4o
   max_tokens: 1024
   temperature: 0.1
+  base_url: "http://localhost:11434"  # only used for ollama
 
 evaluation:
   benchmark_path: "data/benchmark"
