@@ -26,6 +26,7 @@ from src.ingestion.cleaner import clean_batch
 from src.ingestion.loader import Document, load_directory
 from src.retrieval.dense import DenseRetriever
 from src.retrieval.hybrid import HybridRetriever
+from src.retrieval.reranker import Reranker
 from src.retrieval.sparse import SparseRetriever
 
 
@@ -39,6 +40,7 @@ class RAGPipeline:
         sparse_retriever: SparseRetriever,
         hybrid_retriever: HybridRetriever,
         generator: RAGGenerator,
+        reranker: Reranker | None,
         config: dict,
     ):
         self.chunker = chunker
@@ -46,6 +48,7 @@ class RAGPipeline:
         self.sparse = sparse_retriever
         self.hybrid = hybrid_retriever
         self.generator = generator
+        self.reranker = reranker
         self.config = config
 
         self.documents: list[Document] = []
@@ -72,6 +75,11 @@ class RAGPipeline:
             sparse_weight=retrieval_cfg["sparse_weight"],
         )
 
+        reranker_cfg = config.get("reranker", {})
+        reranker = None
+        if reranker_cfg.get("enabled", False):
+            reranker = Reranker(model_name=reranker_cfg["model"])
+
         gen_cfg = config["generation"]
         generator = RAGGenerator(
             provider=gen_cfg["provider"],
@@ -87,6 +95,7 @@ class RAGPipeline:
             sparse_retriever=sparse,
             hybrid_retriever=hybrid,
             generator=generator,
+            reranker=reranker,
             config=config,
         )
 
@@ -141,19 +150,30 @@ class RAGPipeline:
         top_k = top_k or self.config["retrieval"]["top_k"]
         retrieved = self.hybrid.search(question, top_k=top_k)
 
+        if self.reranker:
+            reranker_top_k = self.config.get("reranker", {}).get("top_k", 5)
+            retrieved = self.reranker.rerank(question, retrieved, top_k=reranker_top_k)
+
         return self.generator.generate(question, retrieved)
 
     def retrieve(
         self,
         question: str,
         top_k: int | None = None,
+        rerank: bool = True,
     ) -> list[tuple[Chunk, float]]:
         """Run retrieval only (useful for evaluation and debugging)."""
         if not self.chunks:
             raise RuntimeError("No chunks indexed. Call pipeline.ingest() first.")
 
         top_k = top_k or self.config["retrieval"]["top_k"]
-        return self.hybrid.search(question, top_k=top_k)
+        retrieved = self.hybrid.search(question, top_k=top_k)
+
+        if rerank and self.reranker:
+            reranker_top_k = self.config.get("reranker", {}).get("top_k", 5)
+            retrieved = self.reranker.rerank(question, retrieved, top_k=reranker_top_k)
+
+        return retrieved
 
 
 def _build_chunker(chunking_cfg: dict) -> BaseChunker:
