@@ -1,9 +1,15 @@
-"""Tests for retrieval evaluation metrics."""
+"""Tests for evaluation metrics (retrieval + generation)."""
 
 import math
 
 import pytest
 
+from src.evaluation.generation_metrics import (
+    _parse_json,
+    answer_context_overlap,
+    citation_accuracy,
+    compute_programmatic,
+)
 from src.evaluation.retrieval_metrics import (
     average_precision,
     compute_all,
@@ -192,3 +198,127 @@ class TestComputeAll:
         assert result["precision@3"] == 1.0
         assert result["recall@3"] == 1.0
         assert result["ndcg@3"] == 1.0
+
+
+# ===========================================================================
+# Generation metrics (programmatic — no API calls)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# citation_accuracy
+# ---------------------------------------------------------------------------
+
+class TestCitationAccuracy:
+    def test_all_valid(self):
+        answer = "The court ruled [1] in favor of the plaintiff [2]."
+        result = citation_accuracy(answer, num_passages=3)
+        assert result["total_citations"] == 2
+        assert result["valid_citations"] == 2
+        assert result["accuracy"] == 1.0
+
+    def test_some_invalid(self):
+        answer = "According to [1] and [5], the law applies."
+        result = citation_accuracy(answer, num_passages=3)
+        assert result["total_citations"] == 2
+        assert result["valid_citations"] == 1
+        assert result["accuracy"] == 0.5
+
+    def test_all_invalid(self):
+        answer = "Sources [10] and [20] confirm this."
+        result = citation_accuracy(answer, num_passages=3)
+        assert result["total_citations"] == 2
+        assert result["valid_citations"] == 0
+        assert result["accuracy"] == 0.0
+
+    def test_no_citations(self):
+        answer = "The answer is simply that the law applies here."
+        result = citation_accuracy(answer, num_passages=3)
+        assert result["total_citations"] == 0
+        assert result["accuracy"] == 1.0
+
+    def test_repeated_citation(self):
+        answer = "Per [1], the ruling [1] was clear."
+        result = citation_accuracy(answer, num_passages=2)
+        assert result["total_citations"] == 2
+        assert result["valid_citations"] == 2
+
+    def test_boundary_passage_number(self):
+        answer = "Source [3] states this."
+        assert citation_accuracy(answer, num_passages=3)["valid_citations"] == 1
+        assert citation_accuracy(answer, num_passages=2)["valid_citations"] == 0
+
+
+# ---------------------------------------------------------------------------
+# answer_context_overlap
+# ---------------------------------------------------------------------------
+
+class TestAnswerContextOverlap:
+    def test_full_overlap(self):
+        context = "the cat sat on the mat"
+        answer = "the cat sat on the mat"
+        assert answer_context_overlap(answer, context) == 1.0
+
+    def test_no_overlap(self):
+        context = "the cat sat on the mat"
+        answer = "quantum entanglement discovered"
+        assert answer_context_overlap(answer, context) == 0.0
+
+    def test_partial_overlap(self):
+        context = "the cat sat on the mat"
+        answer = "the cat jumped over the fence"
+        # answer tokens: {the, cat, jumped, over, fence} = 5
+        # overlap: {the, cat} = 2, but "the" and "cat" → 2/5
+        overlap = answer_context_overlap(answer, context)
+        assert 0.0 < overlap < 1.0
+
+    def test_empty_answer(self):
+        assert answer_context_overlap("", "some context") == 0.0
+
+    def test_case_insensitive(self):
+        assert answer_context_overlap("The CAT", "the cat sat") == 1.0
+
+
+# ---------------------------------------------------------------------------
+# _parse_json helper
+# ---------------------------------------------------------------------------
+
+class TestParseJson:
+    def test_plain_json(self):
+        assert _parse_json('{"score": 0.8}') == {"score": 0.8}
+
+    def test_markdown_fenced(self):
+        text = '```json\n{"score": 0.8}\n```'
+        assert _parse_json(text) == {"score": 0.8}
+
+    def test_markdown_fenced_no_lang(self):
+        text = '```\n{"score": 0.8}\n```'
+        assert _parse_json(text) == {"score": 0.8}
+
+    def test_whitespace_padding(self):
+        assert _parse_json('  {"score": 0.8}  ') == {"score": 0.8}
+
+
+# ---------------------------------------------------------------------------
+# compute_programmatic
+# ---------------------------------------------------------------------------
+
+class TestComputeProgrammatic:
+    def test_returns_all_keys(self):
+        result = compute_programmatic(
+            answer="The ruling [1] confirms [2] the decision.",
+            context="The ruling confirms the decision was made.",
+            num_passages=3,
+        )
+        assert "citation_total" in result
+        assert "citation_valid" in result
+        assert "citation_accuracy" in result
+        assert "context_overlap" in result
+
+    def test_values_consistent(self):
+        result = compute_programmatic(
+            answer="completely unrelated quantum physics",
+            context="the court ruled in favor of the plaintiff",
+            num_passages=2,
+        )
+        assert result["citation_total"] == 0
+        assert result["context_overlap"] == 0.0
